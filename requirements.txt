@@ -1,0 +1,5 @@
+agno
+python-dotenv
+requests
+tavily-python
+
