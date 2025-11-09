@@ -8,3 +8,5 @@ googlesearch-python
 pycountry
 gunicorn
 google-genai
+fastapi[standard]
+uvicorn
