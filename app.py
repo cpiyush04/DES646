@@ -4,7 +4,6 @@ from typing import List, Dict, Generator
 from agno.agent import Agent
 import time
 from agno.models.google import Gemini
-from agno.os import AgentOS
 from dotenv import load_dotenv
 import os
 from agno.team import Team
