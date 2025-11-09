@@ -1,5 +1,6 @@
 import json
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, Response
+from typing import List, Dict, Generator
 from agno.agent import Agent
 import time
 from agno.models.google import Gemini
@@ -447,6 +448,16 @@ share_of_voice_agent = Agent(
     debug_mode=True,
 )
 
+def safe_json_loads(data, agent_name):
+        try:
+            if data.strip().startswith("```json") or data.strip().startswith("json```"):
+            # Remove any code fences or 'json' markers
+                cleaned = re.sub(r'```|json', '', data, flags=re.IGNORECASE).strip()
+                return json.loads(cleaned)
+            return json.loads(data)
+        except Exception as e:
+            return {"agent": agent_name, "error": str(e), "raw_output": data}
+
 def news_pipeline(query: str):
     """
     Executes the full news analysis pipeline on the given query.
@@ -487,40 +498,41 @@ def news_pipeline(query: str):
 
     # Step 5: Convert string outputs to JSON safely
     print("[5/6] Parsing JSON outputs...")
-    def safe_json_loads(data, agent_name):
-        try:
-            if data.strip().startswith("```json") or data.strip().startswith("json```"):
-            # Remove any code fences or 'json' markers
-                cleaned = re.sub(r'```|json', '', data, flags=re.IGNORECASE).strip()
-                return json.loads(cleaned)
-            return json.loads(data)
-        except Exception as e:
-            return {"agent": agent_name, "error": str(e), "raw_output": data}
+    
+    # def safe_json_loads(data, agent_name):
+    #     try:
+    #         if data.strip().startswith("```json") or data.strip().startswith("json```"):
+    #         # Remove any code fences or 'json' markers
+    #             cleaned = re.sub(r'```|json', '', data, flags=re.IGNORECASE).strip()
+    #             return json.loads(cleaned)
+    #         return json.loads(data)
+    #     except Exception as e:
+    #         return {"agent": agent_name, "error": str(e), "raw_output": data}
 
-    news_coverage_json = {"agent": "news_coverage_agent", "data": safe_json_loads(news_coverage, "news_coverage_agent")}
-    credibility_json = {"agent": "credibility_agent", "data": safe_json_loads(credibility_score, "credibility_agent")}
-    sentiment_json = {"agent": "sentiment_agent", "data": safe_json_loads(sentiment_res, "sentiment_agent")}
-    voice_share_json = {"agent": "share_of_voice_agent", "data": safe_json_loads(voice_share, "share_of_voice_agent")}
+    # news_coverage_json = {"agent": "news_coverage_agent", "data": safe_json_loads(news_coverage, "news_coverage_agent")}
+    # credibility_json = {"agent": "credibility_agent", "data": safe_json_loads(credibility_score, "credibility_agent")}
+    # sentiment_json = {"agent": "sentiment_agent", "data": safe_json_loads(sentiment_res, "sentiment_agent")}
+    # voice_share_json = {"agent": "share_of_voice_agent", "data": safe_json_loads(voice_share, "share_of_voice_agent")}
     
-    # Step 6: Merge all results into a list of JSONs
-    results = [
-        news_coverage_json,
-        credibility_json,
-        sentiment_json,
-        voice_share_json
-    ]
+    # # Step 6: Merge all results into a list of JSONs
+    # results = [
+    #     news_coverage_json,
+    #     credibility_json,
+    #     sentiment_json,
+    #     voice_share_json
+    # ]
     
-    print("[6/6] Pipeline complete. Saving results...")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    save_path = f"news_pipeline_results_{timestamp}.json"
-    try:
-        with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(results, f, indent=4, ensure_ascii=False)
-        print(f"[💾] Results saved to {save_path}")
-    except Exception as e:
-        print(f"[❌] Failed to save results: {e}")
+    # print("[6/6] Pipeline complete. Saving results...")
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # save_path = f"news_pipeline_results_{timestamp}.json"
+    # try:
+    #     with open(save_path, "w", encoding="utf-8") as f:
+    #         json.dump(results, f, indent=4, ensure_ascii=False)
+    #     print(f"[💾] Results saved to {save_path}")
+    # except Exception as e:
+    #     print(f"[❌] Failed to save results: {e}")
     
-    return results
+    # return results
 
 
 # --- NEW: Function to process live pipeline data ---is
@@ -594,41 +606,161 @@ def news_pipeline(query: str):
 
 
 # # --- UPDATED: Flask Routes ---
-def process_pipeline_results(data: list[dict]):
+# def process_pipeline_results(data: list[dict]):
+#     """
+#     Loads and extracts data from the LIVE pipeline results
+#     and formats it for the new HTML template.
+    
+#     Args:
+#         data (list[dict]): The direct output from news_pipeline().
+    
+#     Returns:
+#         dict: A dictionary formatted for the dashboard template.
+#     """
+#     dashboard_data = {
+#         "core_story": {"description": "N/A", "agreement_pct": 0},
+#         "coverage_gaps": [],
+#         "credibility_scores": [],
+#         # keep both keys ready for compatibility with templates:
+#         "sentiment_summary": {"sentiment_distribution": {}, "distribution": {}},
+#         "top_entities": []
+#     }
+    
+#     try:
+#         # Extract data from each agent, with safe defaults
+#         news_coverage_data = next((item.get('data', {}) for item in data if item.get('agent') == 'news_coverage_agent'), {})
+#         credibility_data = next((item.get('data', []) for item in data if item.get('agent') == 'credibility_agent'), [])
+#         sentiment_data = next((item.get('data', {}) for item in data if item.get('agent') == 'sentiment_agent'), {})
+#         share_of_voice_data = next((item.get('data', {}) for item in data if item.get('agent') == 'share_of_voice_agent'), {})
+        
+#         # --- Format for the new template ---
+        
+#         # 1. Core Story
+#         dashboard_data["core_story"] = {
+#             "description": news_coverage_data.get('core_idea', 'No core story found.'),
+#         }
+        
+#         # 2. Credibility (Sorted) - ensure it's a list
+#         if isinstance(credibility_data, list):
+#             dashboard_data["credibility_scores"] = sorted(
+#                 credibility_data, 
+#                 key=lambda x: x.get('credibility_score', 0), 
+#                 reverse=True
+#             )
+#         else:
+#             # Sometimes agent returns an object with 'results' key
+#             dashboard_data["credibility_scores"] = sorted(
+#                 credibility_data.get('results', []) if isinstance(credibility_data, dict) else [],
+#                 key=lambda x: x.get('credibility_score', 0),
+#                 reverse=True
+#             )
+        
+#         # 3. Coverage Gaps (Sorted)
+#         dashboard_data["coverage_gaps"] = sorted(
+#             news_coverage_data.get('coverage_gaps', []), 
+#             key=lambda x: x.get('pct_of_articles', 0), 
+#             reverse=True
+#         )
+
+#         # 4. Sentiment Summary
+#         # Try to read the agent's structure: prefer 'corpus_summary' then fallback
+#         corpus_summary = sentiment_data.get('summary', sentiment_data if isinstance(sentiment_data, dict) else {})
+#         # Extract the 'sentiment_distribution' (internal name used in code)
+#         dist = corpus_summary.get('sentiment_distribution', {})
+#         # Normalize keys and ensure counts/percentages exist
+#         for key in ["Negative", "Neutral", "Positive"]:
+#             # keep structure: { "percentage": ..., "count": ... }
+#             if key not in dist:
+#                 dist[key] = {"percentage": 0, "count": 0}
+#             else:
+#                 # If user agent returned a simple number (e.g., 12) convert to structure
+#                 if isinstance(dist[key], (int, float)):
+#                     dist[key] = {"percentage": float(dist[key]), "count": 0}
+#                 # If the entry is a dict but missing fields, fill them
+#                 if isinstance(dist[key], dict):
+#                     if "percentage" not in dist[key]:
+#                         dist[key]["percentage"] = 0
+#                     if "count" not in dist[key]:
+#                         dist[key]["count"] = 0
+
+#         # Put the distribution back into the response both ways for compatibility:
+#         dashboard_data["sentiment_summary"]["sentiment_distribution"] = dist
+#         dashboard_data["sentiment_summary"]["distribution"] = dist  # <-- important: template expects .distribution
+
+#         # 5. Top Entities
+#         dashboard_data["top_entities"] = share_of_voice_data.get('top_10_entities', [])
+
+#         # Optionally include other helpful debugging placeholders (nonfatal)
+#         dashboard_data.setdefault("raw_agents", {})  # won't be used by template unless you want to show it
+
+#         return dashboard_data
+        
+#     except Exception as e:
+#         print(f"Error processing pipeline results: {e}")
+#         # Return minimal safe structure for template to render
+#         return {
+#             "core_story": {"description": "Error processing results", "agreement_pct": 0},
+#             "coverage_gaps": [],
+#             "credibility_scores": [],
+#             "sentiment_summary": {"sentiment_distribution": {"Negative":{"percentage":0,"count":0},"Neutral":{"percentage":0,"count":0},"Positive":{"percentage":0,"count":0}}, "distribution": {"Negative":{"percentage":0,"count":0},"Neutral":{"percentage":0,"count":0},"Positive":{"percentage":0,"count":0}}},
+#             "top_entities": [],
+#         }
+
+
+# # @app.route('/', methods=['GET', 'POST'])
+# # def dashboard():
+# #     """Renders the main dashboard page."""
+# #     dashboard_data = {}
+# #     query = ""
+
+# #     if request.method == 'POST':
+# #         query = request.form.get('query')
+# #         if query:
+# #             # Run the pipeline with the user's query
+# #             pipeline_results = news_pipeline(query)
+# #             # Process the live results for display
+# #             dashboard_data = process_pipeline_results(pipeline_results)
+    
+# #     # Pass the query back to the template to display in the search bar
+# #     dashboard_data['query'] = query 
+# #     return render_template('index.html', **dashboard_data)
+
+# # if __name__ == '__main__':
+# #     # Create 'templates' directory if it doesn't exist
+# #     if not os.path.exists('templates'):
+# #         os.makedirs('templates')
+    
+# #     # (The app will now use the 'templates/index.html' file you create below)
+# #     print("Starting Flask app...")
+# #     print("Visit http://127.0.0.1:5000 in your browser.")
+# #     app.run(debug=True)
+# # --- NEW: Streaming Pipeline Function ---
+def process_pipeline_results(all_agent_data: dict):
     """
-    Loads and extracts data from the LIVE pipeline results
-    and formats it for the new HTML template.
-    
-    Args:
-        data (list[dict]): The direct output from news_pipeline().
-    
-    Returns:
-        dict: A dictionary formatted for the dashboard template.
+    Formats the final dictionary of all agent results for the frontend.
+    This is the same as your old 'process_pipeline_results' but takes a dict.
     """
     dashboard_data = {
         "core_story": {"description": "N/A", "agreement_pct": 0},
         "coverage_gaps": [],
         "credibility_scores": [],
-        # keep both keys ready for compatibility with templates:
-        "sentiment_summary": {"sentiment_distribution": {}, "distribution": {}},
+        "sentiment_summary": {"distribution": {}},
         "top_entities": []
     }
     
     try:
-        # Extract data from each agent, with safe defaults
-        news_coverage_data = next((item.get('data', {}) for item in data if item.get('agent') == 'news_coverage_agent'), {})
-        credibility_data = next((item.get('data', []) for item in data if item.get('agent') == 'credibility_agent'), [])
-        sentiment_data = next((item.get('data', {}) for item in data if item.get('agent') == 'sentiment_agent'), {})
-        share_of_voice_data = next((item.get('data', {}) for item in data if item.get('agent') == 'share_of_voice_agent'), {})
-        
-        # --- Format for the new template ---
+        news_coverage_data = all_agent_data.get('news_coverage_agent', {})
+        credibility_data = all_agent_data.get('credibility_agent', [])
+        sentiment_data = all_agent_data.get('sentiment_agent', {})
+        share_of_voice_data = all_agent_data.get('share_of_voice_agent', {})
         
         # 1. Core Story
         dashboard_data["core_story"] = {
             "description": news_coverage_data.get('core_idea', 'No core story found.'),
+            "agreement_pct": news_coverage_data.get('agreement_pct', 0)
         }
         
-        # 2. Credibility (Sorted) - ensure it's a list
+        # 2. Credibility (Sorted)
         if isinstance(credibility_data, list):
             dashboard_data["credibility_scores"] = sorted(
                 credibility_data, 
@@ -636,7 +768,6 @@ def process_pipeline_results(data: list[dict]):
                 reverse=True
             )
         else:
-            # Sometimes agent returns an object with 'results' key
             dashboard_data["credibility_scores"] = sorted(
                 credibility_data.get('results', []) if isinstance(credibility_data, dict) else [],
                 key=lambda x: x.get('credibility_score', 0),
@@ -651,74 +782,136 @@ def process_pipeline_results(data: list[dict]):
         )
 
         # 4. Sentiment Summary
-        # Try to read the agent's structure: prefer 'corpus_summary' then fallback
         corpus_summary = sentiment_data.get('summary', sentiment_data if isinstance(sentiment_data, dict) else {})
-        # Extract the 'sentiment_distribution' (internal name used in code)
         dist = corpus_summary.get('sentiment_distribution', {})
-        # Normalize keys and ensure counts/percentages exist
         for key in ["Negative", "Neutral", "Positive"]:
-            # keep structure: { "percentage": ..., "count": ... }
             if key not in dist:
                 dist[key] = {"percentage": 0, "count": 0}
-            else:
-                # If user agent returned a simple number (e.g., 12) convert to structure
-                if isinstance(dist[key], (int, float)):
-                    dist[key] = {"percentage": float(dist[key]), "count": 0}
-                # If the entry is a dict but missing fields, fill them
-                if isinstance(dist[key], dict):
-                    if "percentage" not in dist[key]:
-                        dist[key]["percentage"] = 0
-                    if "count" not in dist[key]:
-                        dist[key]["count"] = 0
+            elif isinstance(dist[key], (int, float)):
+                 dist[key] = {"percentage": float(dist[key]), "count": 0}
+            if "percentage" not in dist[key]:
+                 dist[key]["percentage"] = 0
+            if "count" not in dist[key]:
+                 dist[key]["count"] = 0
+        dashboard_data["sentiment_summary"]["distribution"] = dist
 
-        # Put the distribution back into the response both ways for compatibility:
-        dashboard_data["sentiment_summary"]["sentiment_distribution"] = dist
-        dashboard_data["sentiment_summary"]["distribution"] = dist  # <-- important: template expects .distribution
+        # --- NEW: Extract Sentiment Clusters ---
+        clusters = corpus_summary.get('sentiment_clusters', {})
+        dashboard_data["sentiment_summary"]["clusters"] = {
+            "Positive": clusters.get("Positive", []),
+            "Neutral": clusters.get("Neutral", []),
+            "Negative": clusters.get("Negative", [])
+        }
+        # --- END NEW ---
 
         # 5. Top Entities
         dashboard_data["top_entities"] = share_of_voice_data.get('top_10_entities', [])
-
-        # Optionally include other helpful debugging placeholders (nonfatal)
-        dashboard_data.setdefault("raw_agents", {})  # won't be used by template unless you want to show it
 
         return dashboard_data
         
     except Exception as e:
         print(f"Error processing pipeline results: {e}")
-        # Return minimal safe structure for template to render
-        return {
-            "core_story": {"description": "Error processing results", "agreement_pct": 0},
-            "coverage_gaps": [],
-            "credibility_scores": [],
-            "sentiment_summary": {"sentiment_distribution": {"Negative":{"percentage":0,"count":0},"Neutral":{"percentage":0,"count":0},"Positive":{"percentage":0,"count":0}}, "distribution": {"Negative":{"percentage":0,"count":0},"Neutral":{"percentage":0,"count":0},"Positive":{"percentage":0,"count":0}}},
-            "top_entities": [],
-        }
+        return {"error": f"Error processing results: {e}"}
+
+def stream_news_pipeline(query: str) -> Generator[str, None, None]:
+    """
+    Executes the full news analysis pipeline, yielding status updates
+    as JSON strings for Server-Sent Events (SSE).
+    """
+    
+    def stream(step: int, status: str, message: str, data: dict = None):
+        """Helper to format the SSE message."""
+        event_data = {"step": step, "status": status, "message": message, "data": data}
+        return f"data: {json.dumps(event_data)}\n\n"
+
+    all_results = {}
+    
+    try:
+        # Step 1: Run search agent
+        yield stream(1, "running", "Searching for articles...")
+        search_result = news_search_agent.run(query).content
+        
+        # Step 2: Extract content from URLs
+        yield stream(2, "running", "Found articles, extracting content...")
+        extracted_articles = extract_content_from_urls(search_result)
+        if not extracted_articles:
+             yield stream(0, "error", "No articles could be extracted. Please try a different query.")
+             return
+
+        # Step 3: Filter relevant articles
+        yield stream(3, "running", "Filtering and cleaning articles...")
+        filtered_articles_raw = news_filter_agent.run(extracted_articles).content
+        filtered_articles = safe_json_loads(filtered_articles_raw, "news_filter_agent")
+        if "error" in filtered_articles:
+            yield stream(0, "error", f"Failed to filter articles: {filtered_articles['error']}")
+            return
+
+        # Step 4: Run parallel analysis agents
+        # We run them sequentially here, but stream after each one.
+        
+        yield stream(4, "running", "Analyzing news coverage and gaps...")
+        news_coverage_raw = news_coverage_agent.run(filtered_articles).content
+        all_results["news_coverage_agent"] = safe_json_loads(news_coverage_raw, "news_coverage_agent")
+
+        yield stream(5, "running", "Assessing article credibility...")
+        credibility_score_raw = credibility_agent.run(filtered_articles).content
+        all_results["credibility_agent"] = safe_json_loads(credibility_score_raw, "credibility_agent")
+
+        yield stream(6, "running", "Classifying sentiment and tone...")
+        sentiment_res_raw = sentiment_agent.run(filtered_articles).content
+        all_results["sentiment_agent"] = safe_json_loads(sentiment_res_raw, "sentiment_agent")
+
+        yield stream(7, "running", "Extracting share of voice...")
+        voice_share_raw = share_of_voice_agent.run(filtered_articles).content
+        all_results["share_of_voice_agent"] = safe_json_loads(voice_share_raw, "share_of_voice_agent")
+
+        # Step 5: Process and send final payload
+        yield stream(8, "processing", "All analysis complete. Generating final dashboard...")
+        final_dashboard_data = process_pipeline_results(all_results)
+        
+        if "error" in final_dashboard_data:
+             yield stream(0, "error", final_dashboard_data["error"])
+        else:
+            yield stream(9, "complete", "Done.", data=final_dashboard_data)
+
+    except Exception as e:
+        print(f"Pipeline failed: {e}")
+        yield stream(0, "error", f"An unexpected error occurred: {str(e)}")
 
 
-@app.route('/', methods=['GET', 'POST'])
+# --- UPDATED: Flask Routes ---
+
+@app.route('/', methods=['GET'])
 def dashboard():
     """Renders the main dashboard page."""
-    dashboard_data = {}
-    query = ""
+    # The page is now just a static shell, JavaScript handles everything.
+    return render_template('index.html')
 
-    if request.method == 'POST':
-        query = request.form.get('query')
-        if query:
-            # Run the pipeline with the user's query
-            pipeline_results = news_pipeline(query)
-            # Process the live results for display
-            dashboard_data = process_pipeline_results(pipeline_results)
+@app.route('/stream-analysis')
+def stream_analysis():
+    """
+    The new streaming endpoint. JavaScript connects to this.
+    """
+    query = request.args.get('query')
+    if not query:
+        return Response("Error: No query provided.", status=400)
     
-    # Pass the query back to the template to display in the search bar
-    dashboard_data['query'] = query 
-    return render_template('index.html', **dashboard_data)
+    # Return a streaming response
+    return Response(
+        stream_news_pipeline(query),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no' # Important for Gunicorn
+        }
+    )
 
 if __name__ == '__main__':
-    # Create 'templates' directory if it doesn't exist
     if not os.path.exists('templates'):
         os.makedirs('templates')
-    
-    # (The app will now use the 'templates/index.html' file you create below)
-    print("Starting Flask app...")
+    print("Starting Flask app in streaming mode...")
     print("Visit http://127.0.0.1:5000 in your browser.")
+    # Note: app.run(debug=True) can sometimes interfere with SSE.
+    # For production, Gunicorn is used (defined in Dockerfile).
     app.run(debug=True)
