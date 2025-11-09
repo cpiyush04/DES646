@@ -6,3 +6,4 @@ flask
 ddgs
 googlesearch-python 
 pycountry
+gunicorn
