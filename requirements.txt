@@ -2,4 +2,7 @@ agno
 python-dotenv
 requests
 tavily-python
-
+flask
+ddgs
+googlesearch-python 
+pycountry
